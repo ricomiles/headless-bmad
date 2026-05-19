@@ -41,6 +41,119 @@ decision_engine_enabled() {
   fi
 }
 
+# ─── Brief enrichment (analyst stage only) ───────────────────────────────────
+# Enriches PROJECT_BRIEF.md so the analyst can produce a passing PRD with fewer
+# gate retries. Upfront call expands all implicit details; retry call patches
+# exactly what the gate critique flagged as missing.
+# Non-blocking: failure logs a warning and the pipeline proceeds with the original.
+
+enrich_brief() {
+  local critique_file="${1:-}"
+
+  [[ -f "PROJECT_BRIEF.md" ]] || { log "  ↳ enrich_brief: PROJECT_BRIEF.md not found — skipping"; return 1; }
+
+  local brief system_prompt user_content enriched mode
+
+  brief=$(cat "PROJECT_BRIEF.md")
+
+  if [[ -n "$critique_file" && -f "$critique_file" ]]; then
+    mode="retry-patch"
+    local critique
+    critique=$(cat "$critique_file")
+
+    read -r -d '' system_prompt << 'RETRY_SP' || true
+You are a requirements analyst patching a project brief.
+An automated PRD pipeline failed its quality gate with the critique provided.
+Trace each blocker back to the root brief gap and add the missing information.
+
+For each critique item:
+- "Missing FR for X" — add feature X: entry point, inputs, outputs, error cases, defaults
+- "Missing AC / no Given/When/Then" — add behavioral specifics (precondition, user action, expected result, error result) for that feature to the brief
+- "Contradiction between A and B" — pick one rule, state it explicitly, resolve in the brief
+- "Undocumented decision" — add to "## Implicit Decisions": D-NNN: [topic] — [decision] — [rationale]
+- "Placeholder / TBD / open question" — replace with a concrete decision
+
+Rules:
+- Stay within existing feature scope — do not add wholly new capabilities
+- All additions must be concrete and testable (exact numbers, exact behaviors)
+- Output ONLY the complete updated PROJECT_BRIEF.md in markdown. No preamble, no code fences.
+RETRY_SP
+
+    user_content="PROJECT_BRIEF.md:
+
+${brief}
+
+ANALYST GATE CRITIQUE — trace each item to a brief gap and add the missing information:
+
+${critique}"
+
+  else
+    mode="upfront"
+
+    read -r -d '' system_prompt << 'UPFRONT_SP' || true
+You are a requirements analyst enriching a project brief before it enters a fully
+automated PRD pipeline. The downstream analyst must produce Given/When/Then ACs for
+every requirement without guessing. Expand the brief so no guess is needed.
+
+For every feature, add all of the following that are not already explicit:
+- Empty/no-data state: what the user sees when there are no entries yet
+- Error/failure state: what happens when the operation fails
+- Boundary inputs: behavior at min, max, zero, negative values
+- Exact numeric values: replace "reasonable", "appropriate", "sensible" with real numbers
+- Default values: what every user-configurable field shows before the user changes it
+- Sign conventions: what does positive/negative mean for each numeric field?
+- Timezone and locale policy: stored as UTC? displayed in device local timezone?
+- State transitions: what event triggers each state change?
+- Navigation: how does the user reach each screen from the home screen?
+- Derived field formulas: exact arithmetic expression, not a prose description
+
+At the document level, add or expand:
+- "## Implicit Decisions" section — one D-NNN entry per discretionary choice you make:
+    D-001: [topic] — [decision] — [rationale: one sentence]
+- "## Out of Scope" — explicitly list anything that could be mistaken as in scope for v1
+- "## Non-Functional Requirements" if absent — performance, storage, offline, accessibility, platform version
+
+Rules:
+- Do NOT invent new features — only elaborate what is already described
+- When a choice is arbitrary, pick the simplest option and document it in Implicit Decisions
+- Replace all TBD, TODO, and "to be decided" text with concrete decisions
+- Output ONLY the complete enriched PROJECT_BRIEF.md in markdown. No preamble, no code fences.
+UPFRONT_SP
+
+    user_content="PROJECT_BRIEF.md:
+
+${brief}"
+  fi
+
+  log "  ↳ enrich_brief: running ${mode} enrichment..."
+
+  enriched=$(printf '%s\n' "$user_content" | claude -p "$system_prompt" \
+    --dangerously-skip-permissions 2>/dev/null) || {
+    log "  ↳ enrich_brief: claude call failed — original brief preserved"
+    return 1
+  }
+
+  # Strip markdown code fences if the model wrapped output
+  enriched=$(printf '%s\n' "$enriched" | python3 -c "
+import sys, re
+text = sys.stdin.read().strip()
+text = re.sub(r'^\x60\x60\x60(?:markdown)?\s*\n?', '', text, count=1, flags=re.IGNORECASE)
+text = re.sub(r'\n?\s*\x60\x60\x60\s*$', '', text, flags=re.IGNORECASE)
+print(text.strip())
+" 2>/dev/null) || true
+
+  if [[ -z "$enriched" || ${#enriched} -lt 200 ]]; then
+    log "  ↳ enrich_brief: output empty or too short — original brief preserved"
+    return 1
+  fi
+
+  local words_before words_after
+  words_before=$(wc -w < "PROJECT_BRIEF.md" | tr -d ' ')
+  printf '%s\n' "$enriched" > "PROJECT_BRIEF.md"
+  words_after=$(wc -w < "PROJECT_BRIEF.md" | tr -d ' ')
+  log "  ↳ enrich_brief: ${mode} complete — ${words_before} → ${words_after} words"
+}
+
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
 LOG_FILE=".autopilot/pipeline.log"
@@ -715,6 +828,12 @@ for f in failures:
       max_retries=$(stage_retries "$stage")
       [[ "$max_retries" =~ ^[0-9]+$ ]] || { log "ERROR: invalid max_retries '${max_retries}' for stage $stage"; exit 1; }
 
+      # Analyst only: enrich brief before first attempt to reduce gate retries
+      if [[ "$stage" == "analyst" ]]; then
+        log "Enriching PROJECT_BRIEF.md before analyst stage..."
+        enrich_brief || true
+      fi
+
       while [[ $attempt -le $max_retries ]]; do
         run_stage "$stage"
 
@@ -739,6 +858,14 @@ for f in failures:
         fi
 
         if [[ $attempt -lt $max_retries ]]; then
+          # Analyst only: patch brief with gate critique before retry
+          if [[ "$stage" == "analyst" ]]; then
+            local crit_file="$AUTOPILOT_DIR/stages/analyst/critique_${attempt}.md"
+            if [[ -f "$crit_file" ]]; then
+              log "Patching brief with analyst critique ${attempt} before retry..."
+              enrich_brief "$crit_file" || true
+            fi
+          fi
           log "Retrying $stage (attempt $((attempt+1))/$max_retries)..."
           _log_append "retry" "$stage" "attempt $((attempt+1))/$max_retries" "\"attempt\":$((attempt+1)),\"max\":$max_retries"
         fi
