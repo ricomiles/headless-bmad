@@ -82,7 +82,7 @@ Activation is complete. Begin the workflow below.
 - `epics_file` = `{planning_artifacts}/epics.md`
 - `prd_file` = `{planning_artifacts}/prd.md`
 - `architecture_file` = `{planning_artifacts}/architecture.md`
-- `ux_file` = `{planning_artifacts}/*ux*.md`
+- `ux_file` = any file or folder in `{planning_artifacts}` whose name contains: `ux`, `design`, `ui-spec`, `wireframe`, `figma`, or `mockup`
 - `story_title` = "" (will be elicited if not derivable)
 - `default_output_file` = `{implementation_artifacts}/{{story_key}}.md`
 
@@ -92,7 +92,7 @@ Activation is complete. Begin the workflow below.
 |-------|-------------|------------------|---------------|
 | prd | PRD (fallback - epics file should have most content) | whole: `{planning_artifacts}/*prd*.md`, sharded: `{planning_artifacts}/*prd*/*.md` | SELECTIVE_LOAD |
 | architecture | Architecture (fallback - epics file should have relevant sections) | whole: `{planning_artifacts}/*architecture*.md`, sharded: `{planning_artifacts}/*architecture*/*.md` | SELECTIVE_LOAD |
-| ux | UX design (fallback - epics file should have relevant sections) | whole: `{planning_artifacts}/*ux*.md`, sharded: `{planning_artifacts}/*ux*/*.md` | SELECTIVE_LOAD |
+| ux | UX design / design handoff (single file or sharded folder; any file type) | whole: `{planning_artifacts}/*ux*.{md,mdx,jsx,tsx,html,json,svg}`, `{planning_artifacts}/*design*.{md,mdx,jsx,tsx,html,json,svg}`, `{planning_artifacts}/*ui-spec*.{md,mdx,jsx,tsx,html,json,svg}`, `{planning_artifacts}/*wireframe*.{md,mdx,jsx,tsx,html,json,svg}`, `{planning_artifacts}/*figma*.{md,json}`, `{planning_artifacts}/*mockup*.{md,mdx,html,svg}`; sharded: `{planning_artifacts}/*ux*/*`, `{planning_artifacts}/*design*/*`, `{planning_artifacts}/*ui-spec*/*`, `{planning_artifacts}/*wireframe*/*`, `{planning_artifacts}/*figma*/*`, `{planning_artifacts}/*mockup*/*` (all files in matching folder, any extension) | FULL_LOAD |
 | epics | Enhanced epics+stories file with BDD and source hints | whole: `{planning_artifacts}/*epic*.md`, sharded: `{planning_artifacts}/*epic*/*.md` | SELECTIVE_LOAD |
 
 ## Execution
@@ -292,6 +292,18 @@ Activation is complete. Begin the workflow below.
     </action>
     <action>Extract actionable insights for current story implementation</action>
   </check>
+
+  <!-- UX / Design Handoff Analysis -->
+  <check if="ux_content is not empty">
+    <action>Set {{design_handoff_exists}} = true</action>
+    <action>Record {{ux_file_path}} = the resolved path of the UX source: if a sharded folder was loaded, record the folder path (e.g., `_bmad-output/planning-artifacts/design-handoff/`); if a single file was loaded, record that file path</action>
+    <action>From {ux_content}, identify ONLY the screens, flows, and components that this specific story ({{epic_num}}.{{story_num}}) will touch — do not list all screens, only those in scope for this story's acceptance criteria</action>
+    <action>Extract design system constraints: component library name and version, spacing/grid system, color token naming, typography rules, icon set</action>
+    <action>Note any explicit "do not customize" rules in the design (e.g., "use shadcn primitives only", "no custom animations", "follow the 8px grid strictly")</action>
+  </check>
+  <check if="ux_content is empty">
+    <action>Set {{design_handoff_exists}} = false</action>
+  </check>
 </step>
 
 <step n="3" goal="Architecture analysis for developer guardrails">
@@ -359,6 +371,12 @@ Activation is complete. Begin the workflow below.
   <!-- Story foundation from epics analysis -->
   <template-output
     file="{default_output_file}">story_requirements</template-output>
+
+  <!-- UI Design Reference — emit before dev context when design exists -->
+  <check if="design_handoff_exists is true">
+    <template-output file="{default_output_file}">ui_design_reference_section</template-output>
+    <note>Populate ui_design_reference_section with: ux_file_path, the story-scoped screens/components extracted in Step 2, and the design constraints. Never emit a generic placeholder — if extraction yielded nothing specific, note "No screens identified for this story; consult {ux_file_path} before implementing any UI."</note>
+  </check>
 
   <!-- Developer context section - MOST IMPORTANT PART -->
   <template-output file="{default_output_file}">

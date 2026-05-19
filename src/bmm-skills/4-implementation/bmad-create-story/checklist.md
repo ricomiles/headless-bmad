@@ -155,7 +155,11 @@ You will systematically re-do the entire story creation process, but with a crit
 
 - **Breaking changes:** Missing requirements that could break existing functionality
 - **Test failures:** Missing test requirements that could allow bugs to reach production
-- **UX violations:** Missing user experience requirements that could ruin the product
+- **UX violations (BLOCKER if project has a UX design file and story touches UI):**
+  - Does the story contain a `## UI Design Reference` section? (required when `{planning_artifacts}/*ux*.md` exists)
+  - Does the section name specific screens/components from the handoff — not generic placeholder text like "[Populated from UX analysis]"?
+  - Is there an explicit "do NOT invent" guardrail visible to the dev agent?
+  - If UX file exists but section is absent or contains only placeholders: BLOCKER — populate it before finalizing
 - **Learning failures:** Missing previous story context that could repeat same mistakes
 
 #### **3.5 Implementation DISASTERS**
