@@ -139,6 +139,8 @@ DESIGN_CONTEXT=$(python3 "$SCRIPT_DIR/inject_designs.py" "developer" 2>/dev/null
 if [[ -n "$DESIGN_CONTEXT" ]]; then
   FULL_PROMPT+="$DESIGN_CONTEXT
 
+[DESIGN_RULE: The design above covers a SUBSET of the UI. Components explicitly shown in the design are FROZEN — implement them exactly as shown; do NOT remove, rename, or substitute any element. Screens or components NOT in the design are at your discretion — follow the design's visual language and patterns. At the end of your output you MUST include a ## Design Compliance Checklist covering only the frozen (designed) components: list each by name, the file implementing it, and mark ✅ implemented or ❌ missing/deviated (with justification). Missing this section is a gate BLOCKER.]
+
 "
 fi
 

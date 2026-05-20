@@ -93,9 +93,16 @@ def validate(path):
         errors.append("Definition of done is missing or too vague. "
                       "Add a section describing concretely how to verify the project is complete.")
 
-    # Placeholder text
-    placeholders = re.findall(r'\b(TODO|TBD|to be determined|to be decided|placeholder|FIXME|xxx)\b',
-                              content, re.IGNORECASE)
+    # Placeholder text — only flag action-item uses, not descriptive prose
+    # TBD/FIXME/xxx are almost never used descriptively
+    _hard = re.findall(r'\b(TBD|to be determined|to be decided|FIXME|xxx)\b',
+                       content, re.IGNORECASE)
+    # TODO only as an action item: "TODO:", "[TODO]", "TODO -", or at line start
+    _todo = re.search(r'(?:^|[\[\s])TODO\s*(?:\]|:|\s*[-–])',
+                      content, re.IGNORECASE | re.MULTILINE)
+    # placeholder only as bracketed filler: [placeholder] or {placeholder}
+    _ph = re.search(r'[\[{]placeholder[\]}]', content, re.IGNORECASE)
+    placeholders = _hard + (["TODO"] if _todo else []) + (["placeholder"] if _ph else [])
     if placeholders:
         errors.append(f"Brief contains placeholder text: {set(placeholders)}. "
                       "Replace all placeholders with real decisions before running.")
@@ -173,8 +180,13 @@ def extract_section(content, keywords):
         if re.match(r'^#{1,3}\s+', line):
             heading_text = re.sub(r'^#+\s+', '', line).lower()
             if any(kw in heading_text for kw in keywords):
-                in_section = True
-                section_lines = []
+                if not in_section:
+                    in_section = True
+                    section_lines = []
+                else:
+                    # Second matching heading (e.g. "Out of Scope" after "In Scope")
+                    # ends the first section rather than restarting it
+                    break
                 continue
             elif in_section:
                 # Reached a new heading — section is over
@@ -225,9 +237,12 @@ if __name__ == "__main__":
         warnings = []
         word_count = len(content.split())
 
-        # Placeholder text (always blocking)
-        placeholders = re.findall(r'\b(TODO|TBD|to be determined|to be decided|FIXME)\b',
-                                  content, re.IGNORECASE)
+        # Placeholder text (always blocking) — same tighter matching as greenfield
+        _hard = re.findall(r'\b(TBD|to be determined|to be decided|FIXME)\b',
+                           content, re.IGNORECASE)
+        _todo = re.search(r'(?:^|[\[\s])TODO\s*(?:\]|:|\s*[-–])',
+                          content, re.IGNORECASE | re.MULTILINE)
+        placeholders = _hard + (["TODO"] if _todo else [])
         if placeholders:
             errors.append(f"Brief contains placeholder text: {set(placeholders)}.")
 

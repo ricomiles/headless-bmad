@@ -184,7 +184,7 @@ PYEOF
 # ─── Design injection ────────────────────────────────────────────────────────
 
 DESIGN_CONTEXT=""
-if [[ "$STAGE" == "analyst" || "$STAGE" == "architect" || "$STAGE" == "developer" ]]; then
+if [[ "$STAGE" == "analyst" || "$STAGE" == "architect" || "$STAGE" == "task-breakdown" || "$STAGE" == "developer" ]]; then
   DESIGN_CONTEXT=$(python3 "$SCRIPT_DIR/inject_designs.py" "$STAGE" 2>/dev/null || true)
 
   IMAGE_FLAGS=()
@@ -693,6 +693,7 @@ fi
 case "$STAGE" in
   task-breakdown)
     FULL_PROMPT+="[TASK: Produce the TASKS.md ticket breakdown and emit one TASK-NNN.json context manifest per ticket to .autopilot/stages/task-breakdown/manifests/]
+[DESIGN_RULE: If a design is provided above, it covers a SUBSET of the UI. Components explicitly shown in the design are FROZEN — every ticket that owns a frozen component must name it, include an AC that it matches the design exactly, and list it in the manifest's "design_components" field. Components and screens NOT in the design are at developer discretion — mark them as "undesigned — follow design system patterns" in the ticket.]
 "
     ;;
   analyst)
@@ -715,6 +716,7 @@ case "$STAGE" in
   developer)
     if [[ -n "$TICKET_ID" ]]; then
       FULL_PROMPT+="[TASK: Implement ticket $TICKET_ID using the manifest-assembled context provided]
+[DESIGN_RULE: If a design artifact is provided above, it covers a SUBSET of the UI. Components explicitly shown in the design are FROZEN — implement them exactly. Screens or components NOT in the design are at your discretion — follow the design's visual language. At the end of your output include a ## Design Compliance Checklist covering only the frozen (designed) components: list each by name, the file implementing it, and ✅ or ❌. Any deviation from a frozen component requires an explicit justification — missing justification is a gate BLOCKER.]
 "
     else
       FULL_PROMPT+="[TASK: Execute the developer stage]

@@ -141,7 +141,9 @@ EOF
 - Code follows patterns from ADRs
 - No imports of packages not in package.json — BLOCKER
 - File(s) specified in the ticket were actually created/modified
-- If a design artifact was provided: UI structure matches the artifact — no components removed or added beyond loading/error/empty states (BLOCKER if design was seeded)
+- If a design artifact was provided: a ## Design Compliance Checklist section is present in the output — BLOCKER if missing
+- If a design artifact was provided: every component/screen named in the design appears in the checklist with a ✅ — BLOCKER if any design component is ❌ or absent without an explicit justification
+- If a design artifact was provided: no design element was removed, renamed, or substituted — only loading/error/empty states may be added — BLOCKER if any substitution exists without justification
 EOF
       ;;
     reviewer)

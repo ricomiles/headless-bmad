@@ -13,9 +13,10 @@ Supported types:
   figma             Figma URL (requires FIGMA_TOKEN env var)
 
 Stages that receive design context:
-  analyst     — reads designs, extracts acceptance criteria
-  architect   — reads designs, infers API contracts and component structure
-  developer   — receives design as frozen reference to implement against
+  analyst        — reads designs, extracts acceptance criteria
+  architect      — reads designs, infers API contracts and component structure
+  task-breakdown — reads designs, writes design-specific ACs into every UI ticket
+  developer      — receives design as frozen reference to implement against
 """
 
 import sys
@@ -25,7 +26,7 @@ import json
 import base64
 import mimetypes
 
-DESIGN_STAGES = {"analyst", "architect", "developer"}
+DESIGN_STAGES = {"analyst", "architect", "task-breakdown", "developer"}
 
 
 def main():
@@ -114,9 +115,10 @@ def handle_claude_artifact(config, stage, notes):
 # Analyst/architect need the spec + shape of components.
 # Developer needs full component code to implement against.
 CHAR_BUDGET = {
-    "analyst":   40_000,
-    "architect": 50_000,
-    "developer": 80_000,
+    "analyst":        40_000,
+    "architect":      50_000,
+    "task-breakdown": 40_000,
+    "developer":      80_000,
 }
 
 
@@ -239,14 +241,28 @@ From the component code and mock data:
 - Define what state must be persisted vs local-only
 - Map out the component dependency tree for the frontend architecture
 """,
-        "developer": """This is the agreed design. It is FROZEN.
-Your implementation must:
+        "task-breakdown": """This design covers a subset of the UI. Components and screens shown in the design are FROZEN — implement them exactly. Screens or components NOT in the design are at developer discretion, but must follow the same visual language and patterns.
+When writing tickets that touch any UI screen or component:
+- If the component is in the design: name it explicitly, write an AC that it matches the design exactly, and list it in the manifest's "design_components" field
+- If the component is NOT in the design: note it as "undesigned — follow design system patterns" so the developer knows they have discretion
+- Add a design compliance AC to every ticket that owns a designed component: "Given the design handoff, when implemented, the component matches the design exactly — no element may be removed or substituted"
+""",
+        "developer": """This design covers a subset of the UI. The rule is:
+- Components and screens explicitly shown in the design are FROZEN — implement them exactly as shown
+- Screens or components NOT in the design are at your discretion — build them to match the design's visual language and patterns, but the exact layout is up to you
+
+For FROZEN components you must:
 1. Preserve all UI structure, layout, and interactions exactly as shown
 2. Replace every mock/hardcoded value with real API calls
 3. Reorganise into proper files per the architecture (do not keep as a monolith)
 4. Add loading, error, and empty states for every async fetch
 5. Use mock data shapes as test fixtures
-Do NOT redesign, remove, or add UI elements beyond loading/error/empty states.
+
+At the end of your output you MUST include a ## Design Compliance Checklist section:
+- List every component/screen explicitly named in the design above (frozen scope only)
+- For each, note the file that implements it and mark as ✅ implemented or ❌ missing/deviated (with reason)
+- Any deviation from a frozen component requires an explicit justification
+- Components you built that are NOT in the design do not need to appear here
 """,
     }
 
@@ -268,7 +284,7 @@ Do NOT redesign, remove, or add UI elements beyond loading/error/empty states.
         used += len(block)
 
     # 3. Components — include as many as budget allows
-    # Developer gets full code; analyst/architect get truncated if large
+    # Developer gets full code; all other stages get truncated excerpts
     trunc_limit = None if stage == "developer" else 3_000  # chars per file for non-dev
 
     component_blocks = []
