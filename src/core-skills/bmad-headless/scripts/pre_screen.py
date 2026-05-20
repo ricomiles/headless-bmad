@@ -9,7 +9,7 @@ Exit 1: structural failure(s) found — gate returns FAIL immediately; no LLM in
 import sys
 import re
 
-KNOWN_STAGES = {'analyst', 'architect'}
+KNOWN_STAGES = {'analyst', 'architect', 'developer'}
 
 REQUIRED_SECTIONS = {
     'analyst': [
@@ -141,6 +141,44 @@ def check_architect_specifics(content):
     return failures
 
 
+def _brief_has_designs():
+    """Return True if PROJECT_BRIEF.md declares a designs/UI section."""
+    try:
+        with open('PROJECT_BRIEF.md') as f:
+            brief = f.read()
+    except (FileNotFoundError, OSError):
+        return False
+    headings = [
+        re.sub(r'^#+\s+', '', line).strip().lower()
+        for line in brief.splitlines()
+        if re.match(r'^#{1,4}\s+', line)
+    ]
+    return any(
+        any(kw in h for kw in ('design', 'ui', 'mockup', 'wireframe'))
+        for h in headings
+    )
+
+
+def check_developer_design_compliance(content):
+    """If the brief declares a design, output must contain a Design Compliance Checklist heading."""
+    failures = []
+    if not _brief_has_designs():
+        return failures
+    output_headings = [
+        re.sub(r'^#+\s+', '', line).strip().lower()
+        for line in content.splitlines()
+        if re.match(r'^#{1,4}\s+', line)
+    ]
+    if not any('design compliance' in h for h in output_headings):
+        failures.append(
+            'PROJECT_BRIEF.md declares a design but the output is missing a '
+            '"## Design Compliance Checklist" section. '
+            'Add a checklist mapping each designed component to its implementation file, '
+            'marked ✅ implemented or ❌ missing/deviated (with justification).'
+        )
+    return failures
+
+
 def run_checks(stage, output_path):
     # AC5: unknown stages are a complete no-op — skip ALL checks
     if stage not in KNOWN_STAGES:
@@ -164,6 +202,8 @@ def run_checks(stage, output_path):
         failures.extend(check_analyst_fr_criteria(content))
     elif stage == 'architect':
         failures.extend(check_architect_specifics(content))
+    elif stage == 'developer':
+        failures.extend(check_developer_design_compliance(content))
 
     if failures:
         print(f'Pre-screen: FAIL — {len(failures)} structural issue(s) found:')
